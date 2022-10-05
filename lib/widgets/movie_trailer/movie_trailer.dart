@@ -7,7 +7,7 @@ class MovieTrailer extends StatefulWidget {
   const MovieTrailer({Key? key, required this.videoKey}) : super(key: key);
 
   @override
-  _MovieTrailerState createState() => _MovieTrailerState();
+  State<MovieTrailer> createState() => _MovieTrailerState();
 }
 
 class _MovieTrailerState extends State<MovieTrailer> {

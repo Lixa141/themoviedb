@@ -1,67 +1,110 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_themoviedb/domain/api_client/api_client.dart';
 import 'package:flutter_themoviedb/domain/entity/movie.dart';
-import 'package:flutter_themoviedb/domain/entity/popular_movie_response.dart';
+import 'package:flutter_themoviedb/domain/services/movie_service.dart';
+import 'package:flutter_themoviedb/library/paginator.dart';
+import 'package:flutter_themoviedb/library/widgets/localized_model.dart';
 import 'package:flutter_themoviedb/navigation/main_navigation.dart';
 import 'package:intl/intl.dart';
 
-class MovieListModel extends ChangeNotifier {
-  final _apiClient = ApiClient();
-  final _movies = <Movie>[];
-  late int _currentPage;
-  late int _totalPage;
-  var _isLoadingInProgress = false;
-  String? _searchQuery;
-  String _locale = '';
+class MovieListRowData {
+  final int id;
+  final String posterPath;
+  final String title;
+  final String releaseDate;
+  final String overview;
+
+  MovieListRowData({
+    required this.id,
+    required this.posterPath,
+    required this.title,
+    required this.releaseDate,
+    required this.overview,
+  });
+}
+
+class MovieListViewModel extends ChangeNotifier {
+  final _movieService = MovieService();
+  late final Paginator<Movie> _popularMoviePaginator;
+  late final Paginator<Movie> _searchedMoviePaginator;
+  final  _localeStorage = LocalizedModelStorage();
+  // String _locale = '';
   Timer? searchDebounce;
 
-  List<Movie> get movies => List.unmodifiable(_movies);
+  var _movies = <MovieListRowData>[];
+  String? _searchQuery;
+
+  List<MovieListRowData> get movies => List.unmodifiable(_movies);
   late DateFormat _dateFormat;
 
-  String stringFromDate(DateTime? date) =>
-      date != null ? _dateFormat.format(date) : '';
+  bool get isSearchMode {
+    final searchQuery = _searchQuery;
+    return searchQuery != null && searchQuery.isNotEmpty;
+  }
 
-  Future<void> setupLocale(BuildContext context) async {
-    final locale = Localizations.localeOf(context).toLanguageTag();
-    if (_locale == locale) return;
-    _locale = locale;
-    _dateFormat = DateFormat.yMMMMd(locale);
+  MovieListViewModel() {
+    _popularMoviePaginator = Paginator<Movie>((pageNumber) async {
+      final result = await _movieService.getPopularMovies(
+        pageNumber,
+        _localeStorage.localTag,
+      );
+      return PaginatorLoadResult<Movie>(
+        data: result.movies,
+        currentPage: result.page,
+        totalPage: result.totalPages,
+      );
+    });
+
+    _searchedMoviePaginator = Paginator<Movie>((pageNumber) async {
+      final result = await _movieService.getSearchedMovies(
+        pageNumber,
+        _localeStorage.localTag,
+        _searchQuery ?? '',
+      );
+      return PaginatorLoadResult<Movie>(
+        data: result.movies,
+        currentPage: result.page,
+        totalPage: result.totalPages,
+      );
+    });
+  }
+
+  Future<void> setupLocale(Locale locale) async {
+    if (!_localeStorage.updateLocale(locale)) return;
+    _dateFormat = DateFormat.yMMMMd(_localeStorage.localTag);
     await _resetList();
   }
 
   Future<void> _resetList() async {
-    _currentPage = 0;
-    _totalPage = 1;
+    await _popularMoviePaginator.reset();
+    await _searchedMoviePaginator.reset();
     _movies.clear();
     await _loadNextPage();
   }
 
-  Future<PopularMovieResponse> _loadMovies(
-      int nextPage, String locale) async {
-    final query = _searchQuery;
-    if (_searchQuery == null) {
-      return await _apiClient.popularMovies(nextPage, _locale);
+  Future<void> _loadNextPage() async {
+    if (isSearchMode) {
+      await _searchedMoviePaginator.loadNextPage();
+      _movies = _searchedMoviePaginator.data.map(_makeRowData).toList();
     } else {
-      return await _apiClient.searchMovies(query, nextPage, locale);
+      await _popularMoviePaginator.loadNextPage();
+      _movies = _popularMoviePaginator.data.map(_makeRowData).toList();
     }
+    notifyListeners();
   }
 
-  Future<void> _loadNextPage() async {
-    if (_isLoadingInProgress || _currentPage >= _totalPage) return;
-    _isLoadingInProgress = true;
-    final nextPage = _currentPage + 1;
-    try {
-      final moviesResponse = await _loadMovies(nextPage, _locale);
-      _movies.addAll(moviesResponse.movies);
-      _currentPage = moviesResponse.page;
-      _totalPage = moviesResponse.totalPages;
-      _isLoadingInProgress = false;
-      notifyListeners();
-    } catch (e) {
-      _isLoadingInProgress = false;
-    }
+  MovieListRowData _makeRowData(Movie movie) {
+    final releaseDate = movie.releaseDate;
+    final posterPath = movie.posterPath ?? '';
+    final formatReleaseDate =
+    releaseDate != null ? _dateFormat.format(releaseDate) : '';
+    return MovieListRowData(
+        id: movie.id,
+        title: movie.title,
+        releaseDate: formatReleaseDate,
+        posterPath: posterPath,
+        overview: movie.overview);
   }
 
   void onMovieTap(BuildContext context, int index) {
@@ -76,7 +119,11 @@ class MovieListModel extends ChangeNotifier {
       final searchQuery = text.isNotEmpty ? text : null;
       if (_searchQuery == searchQuery) return;
       _searchQuery = searchQuery;
-      await _resetList();
+      _movies.clear();
+      if (isSearchMode) {
+        await _searchedMoviePaginator.reset();
+      }
+      _loadNextPage();
     });
   }
 

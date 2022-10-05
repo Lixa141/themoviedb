@@ -1,26 +1,112 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_themoviedb/domain/api_client/api_client.dart';
-import 'package:flutter_themoviedb/domain/data_providers/session_data_provider.dart';
+import 'package:flutter_themoviedb/domain/clients/api_client_exception.dart';
 import 'package:flutter_themoviedb/domain/entity/movie_details.dart';
 import 'package:flutter_themoviedb/domain/entity/movie_details_credits.dart';
+import 'package:flutter_themoviedb/domain/services/auth_service.dart';
+import 'package:flutter_themoviedb/domain/services/movie_service.dart';
+import 'package:flutter_themoviedb/library/widgets/localized_model.dart';
+import 'package:flutter_themoviedb/navigation/main_navigation.dart';
 import 'package:intl/intl.dart';
 
+class MovieDetailsDataTopPoster {
+  final String? backdropPath;
+  final String? posterPath;
+  final bool isFavorite;
+
+  IconData get favoriteIcon =>
+      isFavorite ? Icons.favorite : Icons.favorite_outline;
+
+  MovieDetailsDataTopPoster({
+    this.backdropPath,
+    this.posterPath,
+    this.isFavorite = false,
+  });
+
+  MovieDetailsDataTopPoster copyWith({
+    String? backdropPath,
+    String? posterPath,
+    bool? isFavorite,
+  }) {
+    return MovieDetailsDataTopPoster(
+      backdropPath: backdropPath ?? this.backdropPath,
+      posterPath: posterPath ?? this.posterPath,
+      isFavorite: isFavorite ?? this.isFavorite,
+    );
+  }
+}
+
+class MovieDetailsMovieNameData {
+  final String title;
+  final String year;
+
+  MovieDetailsMovieNameData({required this.title, required this.year});
+}
+
+class MovieDetailsScoreData {
+  final String? videoKey;
+  final double voteAverage;
+
+  MovieDetailsScoreData({this.videoKey, required this.voteAverage});
+}
+
+class MovieDetailsSummaryData {
+  final String certification;
+  final String summary;
+  final String? genres;
+
+  MovieDetailsSummaryData({
+    required this.certification,
+    this.summary = '',
+    this.genres,
+  });
+}
+
+class MovieDetailsCrewData {
+  final String name;
+  final String job;
+
+  MovieDetailsCrewData({required this.name, required this.job});
+}
+
+class MovieDetailsCastData {
+  final String? profilePath;
+  final String name;
+  final String character;
+
+  MovieDetailsCastData({
+    this.profilePath,
+    required this.name,
+    required this.character,
+  });
+}
+
+class MovieDetailsData {
+  String title = '';
+  bool isLoading = true;
+  String overview = '';
+  MovieDetailsDataTopPoster topPosterData = MovieDetailsDataTopPoster();
+  MovieDetailsMovieNameData movieNameData =
+      MovieDetailsMovieNameData(title: '', year: '');
+  MovieDetailsScoreData scoreData = MovieDetailsScoreData(voteAverage: 0);
+  MovieDetailsSummaryData summaryData =
+      MovieDetailsSummaryData(certification: '');
+  String tagline = '';
+  List<MovieDetailsCrewData> crewData = const <MovieDetailsCrewData>[];
+  List<MovieDetailsCastData> castData = const <MovieDetailsCastData>[];
+}
+
 class MovieDetailsModel extends ChangeNotifier {
-  final _sessionDataProvider = SessionDataProvider();
-  final _apiClient = ApiClient();
+  final _authService = AuthService();
+  final _movieService = MovieService();
 
   final int movieId;
-  MovieDetails? _movieDetails;
+  final  _localeStorage = LocalizedModelStorage();
+  final data = MovieDetailsData();
   String? _genres;
-  String _locale = '';
   late DateFormat _dateFormat;
   String? _certificate;
   String? _runTime;
   final List<Crew> _filteredCrew = <Crew>[];
-  bool _isFavorite = false;
-  Future<void>? Function()? onSessionExpired;
-
-  MovieDetails? get movieDetails => _movieDetails;
 
   String? get certificate => _certificate;
 
@@ -30,75 +116,123 @@ class MovieDetailsModel extends ChangeNotifier {
 
   List<Crew>? get filteredCrew => _filteredCrew;
 
-  bool? get isFavorite => _isFavorite;
-
   MovieDetailsModel(this.movieId);
 
-  Future<void> setupLocale(BuildContext context) async {
-    final locale = Localizations.localeOf(context).toLanguageTag();
-    if (_locale == locale) return;
-    _locale = locale;
-    _dateFormat = DateFormat.yMMMMd(locale);
+  Future<void> setupLocale(BuildContext context, Locale locale) async {
+    if (!_localeStorage.updateLocale(locale)) return;
+    _dateFormat = DateFormat.yMMMMd(_localeStorage.localTag);
     await getCertificate();
-    await loadDetails();
-    formatRunTime();
-    formatGenres();
-    filterCrew();
+    updateData(null, false);
+    await loadDetails(context);
   }
 
-  Future<void> loadDetails() async {
-    try {
-      _movieDetails = await _apiClient.movieDetails(movieId, _locale);
-      final sessionId = await _sessionDataProvider.getSessionId();
-      if (sessionId != null) {
-        _isFavorite = await _apiClient.isMovieFavorite(movieId, sessionId);
-      }
+  void updateData(MovieDetails? details, bool isFavorite) {
+    formatRunTime(details);
+    formatGenres(details);
+    filterCrew(details);
+
+    data.title = details?.title ?? 'Loading';
+    data.isLoading = details == null;
+    if (details == null) {
       notifyListeners();
-    } on ApiClientException catch (e) {
-      _handleApiClientException(e);
+      return;
     }
+    data.overview = details.overview ?? '';
+    data.topPosterData = MovieDetailsDataTopPoster(
+        backdropPath: details.backdropPath,
+        posterPath: details.posterPath,
+        isFavorite: isFavorite);
+    var year = details.releaseDate?.year.toString();
+    year = year != null ? ' ($year)' : '';
+    data.movieNameData = MovieDetailsMovieNameData(
+      title: details.title,
+      year: year,
+    );
+
+    final videos =
+        details.videos.results.where((video) => video.site == 'YouTube');
+    final videoKey = videos.isNotEmpty ? videos.first.key : null;
+
+    var voteAverage = details.voteAverage * 10;
+
+    data.scoreData = MovieDetailsScoreData(
+      videoKey: videoKey,
+      voteAverage: voteAverage,
+    );
+
+    data.summaryData = MovieDetailsSummaryData(
+      certification: _certificate ?? '',
+      summary: makeSummary(details),
+      genres: _genres,
+    );
+
+    data.tagline = details.tagline ?? '';
+    data.crewData = _filteredCrew
+        .map((person) =>
+            MovieDetailsCrewData(name: person.name, job: person.job))
+        .toList();
+    data.castData = details.credits.cast
+        .map((person) => MovieDetailsCastData(
+              profilePath: person.profilePath,
+              name: person.name,
+              character: person.character,
+            ))
+        .toList();
+    notifyListeners();
+  }
+
+  String makeSummary(MovieDetails details) {
+    var text = '';
+
+    final releaseDate = details.releaseDate;
+    if (releaseDate != null) {
+      text += '${stringFromDate(releaseDate)} ';
+    }
+    final productionCountries = details.productionCountries;
+    if (productionCountries.isNotEmpty) {
+      text += '(${productionCountries.first.iso}) ';
+    }
+    final runTime = _runTime;
+    runTime != null ? text += '• $runTime ' : null;
+
+    return text;
   }
 
   String stringFromDate(DateTime? date) =>
       date != null ? _dateFormat.format(date) : '';
 
   Future<void> getCertificate() async {
-    var certificate = '';
-    final releaseDates = await _apiClient.getReleasesDates(movieId);
-    final localeCountry = _locale.split('-')[1];
-    final releaseDate = releaseDates
-        .where((element) => element['iso_3166_1'] == localeCountry)
-        .toList();
-    if (releaseDate.isNotEmpty) {
-      certificate =
-          releaseDate[0]['release_dates'][0]['certification'].toString();
-      _certificate = certificate;
+    final certificate =
+        await _movieService.getCertificate(movieId: movieId, locale: _localeStorage.localTag);
+    _certificate = certificate;
+  }
+
+  Future<void> loadDetails(BuildContext context) async {
+    try {
+      final details =
+          await _movieService.loadDetails(movieId: movieId, locale: _localeStorage.localTag);
+
+      updateData(details.details, details.isFavorite);
+    } on ApiClientException catch (e) {
+      _handleApiClientException(e, context);
     }
   }
 
-  Future<void> toggleIsFavorite() async {
-    final sessionId = await _sessionDataProvider.getSessionId();
-    final accountId = await _sessionDataProvider.getAccountId();
-
-    if (sessionId == null || accountId == null) return;
-
-    _isFavorite = !_isFavorite;
+  Future<void> toggleIsFavorite(BuildContext context) async {
+    data.topPosterData =
+        data.topPosterData.copyWith(isFavorite: !data.topPosterData.isFavorite);
+    notifyListeners();
 
     try {
-      await _apiClient.makeMovieFavorite(
-        sessionId: sessionId,
-        accountId: accountId,
-        mediaType: MediaType.movie,
-        mediaId: movieId,
-        isFavorite: _isFavorite,
-      );
+      await _movieService.toggleIsFavorite(
+          movieId: movieId, isFavorite: data.topPosterData.isFavorite);
     } on ApiClientException catch (e) {
-      _handleApiClientException(e);
+      _handleApiClientException(e, context);
     }
   }
 
-  void formatRunTime() {
-    final runTime = _movieDetails?.runtime ?? 0;
+  void formatRunTime(MovieDetails? details) {
+    final runTime = details?.runtime ?? 0;
     final hour = runTime ~/ 60;
     final minutes = runTime - hour * 60;
     var result = hour > 0 ? '${hour}h ' : '';
@@ -106,8 +240,8 @@ class MovieDetailsModel extends ChangeNotifier {
     _runTime = result;
   }
 
-  void formatGenres() {
-    final genres = _movieDetails?.genres.toList();
+  void formatGenres(MovieDetails? details) {
+    final genres = details?.genres.toList();
     var result = '';
     if (genres != null) {
       result += genres.map((e) => e.name).toString();
@@ -115,8 +249,8 @@ class MovieDetailsModel extends ChangeNotifier {
     }
   }
 
-  void filterCrew() {
-    final crew = movieDetails?.credits.crew;
+  void filterCrew(MovieDetails? details) {
+    final crew = details?.credits.crew;
     if (crew != null) {
       final sortedByPopularityCrew = crew
         ..sort((b, a) => a.popularity.compareTo(b.popularity));
@@ -125,7 +259,7 @@ class MovieDetailsModel extends ChangeNotifier {
         final current = sortedByPopularityCrew[i];
         final previous = sortedByPopularityCrew[i - 1];
         if (current.id == previous.id) {
-          job += ', ' + sortedByPopularityCrew[i].job;
+          job += ', ${sortedByPopularityCrew[i].job}';
         } else {
           _filteredCrew.add(Crew(
             adult: previous.adult,
@@ -148,13 +282,15 @@ class MovieDetailsModel extends ChangeNotifier {
     }
   }
 
-  void _handleApiClientException(ApiClientException exception) {
+  void _handleApiClientException(
+      ApiClientException exception, BuildContext context) {
     switch (exception.type) {
       case ApiClientExceptionType.sessionExpired:
-        onSessionExpired?.call();
+        _authService.logout();
+        MainNavigation.resetNavigation(context);
         break;
       default:
-        print(exception);
+        print(exception.type);
     }
   }
 }
