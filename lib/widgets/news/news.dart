@@ -12,7 +12,7 @@ class News extends StatelessWidget {
           'Logout',
         ),
         IconButton(
-          onPressed: () => SessionDataProvider().setSessionId(null),
+          onPressed: () => SessionDataProvider().deleteSessionId(),
           icon: const Icon(Icons.logout),
         ),
       ],
