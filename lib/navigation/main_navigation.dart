@@ -1,32 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_themoviedb/library/widgets/inherited/provider.dart';
-import 'package:flutter_themoviedb/widgets/auth/authentification.dart';
-import 'package:flutter_themoviedb/widgets/auth/authentification_model.dart';
-import 'package:flutter_themoviedb/widgets/main_screen/main_screen.dart';
-import 'package:flutter_themoviedb/widgets/main_screen/main_screen_model.dart';
-import 'package:flutter_themoviedb/widgets/movie_details/movie_details.dart';
-import 'package:flutter_themoviedb/widgets/movie_details/movie_details_model.dart';
-import 'package:flutter_themoviedb/widgets/movie_trailer/movie_trailer.dart';
+import 'package:flutter_themoviedb/domain/factories/screen_factory.dart';
 
 abstract class MainNavigationRouteNames {
+  static const loaderWidget = '/';
   static const auth = 'auth';
-  static const mainScreen = '/';
-  static const movieDetails = '/movie_details';
-  static const movieTrailer = '/movie_details/trailer';
+  static const mainScreen = '/main_screen';
+  static const movieDetails = '/main_screen/movie_details';
+  static const movieTrailer = '/main_screen/movie_details/trailer';
 }
 
 class MainNavigation {
-  String initialRoute(bool isAuth) => isAuth
-      ? MainNavigationRouteNames.mainScreen
-      : MainNavigationRouteNames.auth;
+  static final _screenFactory = ScreenFactory();
+
   final routes = <String, Widget Function(BuildContext)>{
-    MainNavigationRouteNames.auth: (context) =>
-        NotifierProvider(create: () => AuthModel(), child: const AuthWidget()),
-    MainNavigationRouteNames.mainScreen: (context) => NotifierProvider(
-          create: () => MainScreenModel(),
-          child: const MainScreenWidget(),
-        )
-    //const MainScreenWidget(),
+    MainNavigationRouteNames.loaderWidget: (_) => _screenFactory.makeLoader(),
+    MainNavigationRouteNames.auth: (_) => _screenFactory.makeAuth(),
+    MainNavigationRouteNames.mainScreen: (_) => _screenFactory.makeMainScreen(),
   };
 
   Route<Object> onGenerateRoute(RouteSettings settings) {
@@ -35,18 +24,23 @@ class MainNavigation {
         final arguments = settings.arguments;
         final movieId = arguments is int ? arguments : 0;
         return MaterialPageRoute(
-            builder: (context) => NotifierProvider(
-                  create: () => MovieDetailsModel(movieId),
-                  child: const MovieDetailsWidget(),
-                ));
+          builder: (_) => _screenFactory.makeMovieDetails(movieId),
+        );
       case MainNavigationRouteNames.movieTrailer:
         final arguments = settings.arguments;
         final videoKey = arguments is String ? arguments : '';
         return MaterialPageRoute(
-            builder: (context) => MovieTrailer(videoKey: videoKey));
+          builder: (_) => _screenFactory.makeMovieTrailer(videoKey),
+        );
       default:
         const widget = Text('Navigation error');
-        return MaterialPageRoute(builder: (context) => widget);
+        return MaterialPageRoute(builder: (_) => widget);
     }
+  }
+
+  static void resetNavigation(BuildContext context) {
+    Navigator.of(context)
+        .pushNamedAndRemoveUntil(
+      MainNavigationRouteNames.loaderWidget, (route) => false,);
   }
 }
