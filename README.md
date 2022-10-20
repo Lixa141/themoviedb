@@ -1,16 +1,29 @@
-# flutter_themoviedb
+# themoviedb_mvvm
 
-A new Flutter project.
+Клиент агрегатора фильмов TheMovieDB (TMDB) построенный на архитектуре MVVM
 
-## Getting Started
+## Функционал приложения
+В приложении реализованы:
 
-This project is a starting point for a Flutter application.
+- Предварительный экран загрузки, который в зависимости от состояния авторизации, перенаправляет на страницу со списком фильмов, либо на страницу авторизации
+- Страница авторизации, которая валидирует поля и авторизует пользователя (необходима регистрация на [themoviedb](https://www.themoviedb.org/signup))
+- Страница списка фильмов, с автоматической дозагрузкой новых и подстройкой описания под локализацию устройства
+- Через строку поиска можно конкретизировать запрос по списку фильмов (найти интересующий по названию фильма)
+- Страница с конкретным фильмом, где можно узнать полное описание фильма, его рейтинг, посмотреть трейлер
+- Реализована возможность отметить фильм как Избранное (иконка сердечка), мгновенно отобразив его в приложении и на сайте
+- В случае, если сессия истекла - перенаправляет на страницу Авторизации
+- Наличие вкладки Logout, где по соответствующей иконке можно разлогиниться из приложения в ручном режиме
 
-A few resources to get you started if this is your first Flutter project:
+## Инструменты
+- [flutter_bloc](https://pub.dev/packages/flutter_bloc) для управления состояниями
+- [freezed](https://pub.dev/packages/freezed) для иммутабельности состояний
+- [provider](https://pub.dev/packages/provider) для аналога di
+- [http](https://pub.dev/packages/http) для отправки запросов в сеть
+- [intl](https://pub.dev/packages/intl) для работы с локализацией
+- [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) для хранения учетных данных в защищенном режиме
+- [youtube_player_flutter](https://pub.dev/packages/youtube_player_flutter) - плеер для воспроизведения трейлера фильма
 
-- [Lab: Write your first Flutter app](https://flutter.dev/docs/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://flutter.dev/docs/cookbook)
-
-For help getting started with Flutter, view our
-[online documentation](https://flutter.dev/docs), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## UPD
+- 10.04.22 доступ к Themoviedb.com невозможен с территории России и Беларуси (моё приложение при этом доступно без VPN)
+- 01.10.22 API-ссылка на загрузку картинок работает со сбоями (VPN не помогает), поэтому какое-то время может висеть загрузка (в конечном итоге обычно загружаются), а может и не будет проблем с загрузкой изначально
+ 
